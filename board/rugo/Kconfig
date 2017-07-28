@@ -1,0 +1,9 @@
+if TARGET_RUGO
+
+config SYS_BOARD
+	default "rugo"
+
+config SYS_CONFIG_NAME
+	default "rugo"
+ 
+endif
