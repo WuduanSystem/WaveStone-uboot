@@ -36,6 +36,12 @@ DECLARE_GLOBAL_DATA_PTR;
 
 #define I2C_PAD_CTRL	(PAD_CTL_DSE_3P3V_32OHM | PAD_CTL_SRE_SLOW | \
 			PAD_CTL_HYS | PAD_CTL_PUE | PAD_CTL_PUS_PU100KOHM)
+
+#define LCD_PAD_CTRL    (PAD_CTL_HYS | PAD_CTL_PUS_PU100KOHM | \
+			PAD_CTL_DSE_3P3V_49OHM)
+			
+
+
 /*
 #define ENET_PAD_CTRL  (PAD_CTL_PUS_PU100KOHM | PAD_CTL_PUE  |  PAD_CTL_DSE_3P3V_49OHM  | PAD_CTL_SRE_FAST)
 
@@ -197,7 +203,7 @@ static iomux_v3_cfg_t const usdhc2_pads[] = {
 	MX7D_PAD_SD2_RESET_B__GPIO5_IO11 | MUX_PAD_CTRL(USDHC_PAD_CTRL),
 };
 
-#define USDHC2_PWR_GPIO IMX_GPIO_NR(5, 11)
+//#define USDHC2_PWR_GPIO IMX_GPIO_NR(5, 11)
 
 static void setup_iomux_uart(void)
 {
@@ -205,7 +211,6 @@ static void setup_iomux_uart(void)
 };
 
 static struct fsl_esdhc_cfg usdhc_cfg[2] = {
-	{USDHC2_BASE_ADDR},
 	{USDHC3_BASE_ADDR},
 };
 
@@ -215,10 +220,10 @@ int board_mmc_getcd(struct mmc *mmc)
 	int ret = 0;
 
 	switch (cfg->esdhc_base) {
-	case USDHC2_BASE_ADDR:
-		ret = 1; 	/*no cd pin, assume uSDHC2 sd is always present*/
-		//ret = !gpio_get_value(USDHC2_CD_GPIO);
-		break;
+	// case USDHC2_BASE_ADDR:
+	// 	ret = 1; 	no cd pin, assume uSDHC2 sd is always present
+	// 	//ret = !gpio_get_value(USDHC2_CD_GPIO);
+	// 	break;
 	case USDHC3_BASE_ADDR:
 		ret = 1; /* Assume uSDHC3 emmc is always present */
 		break;
@@ -244,17 +249,17 @@ int board_mmc_init(bd_t *bis)
 			
 			usdhc_cfg[0].sdhc_clk = mxc_get_clock(MXC_ESDHC3_CLK);
 			break;
-		case 1:
-			imx_iomux_v3_setup_multiple_pads(
-				usdhc2_pads, ARRAY_SIZE(usdhc2_pads));
-			//gpio_request(USDHC1_CD_GPIO, "usdhc2_cd");
-			//gpio_direction_input(USDHC1_CD_GPIO);
-			gpio_request(USDHC2_PWR_GPIO, "usdhc2_pwr");
-			gpio_direction_output(USDHC2_PWR_GPIO, 0);
-			udelay(500);
-			gpio_direction_output(USDHC2_PWR_GPIO, 1);
-			usdhc_cfg[1].sdhc_clk = mxc_get_clock(MXC_ESDHC_CLK);
-			break;
+		// case 1:
+		// 	imx_iomux_v3_setup_multiple_pads(
+		// 		usdhc2_pads, ARRAY_SIZE(usdhc2_pads));
+		// 	//gpio_request(USDHC2_CD_GPIO, "usdhc2_cd");
+		// 	//gpio_direction_input(USDHC2_CD_GPIO);
+		// 	gpio_request(USDHC2_PWR_GPIO, "usdhc2_pwr");
+		// 	gpio_direction_output(USDHC2_PWR_GPIO, 0);
+		// 	udelay(500);
+		// 	gpio_direction_output(USDHC2_PWR_GPIO, 1);
+		// 	usdhc_cfg[1].sdhc_clk = mxc_get_clock(MXC_ESDHC2_CLK);
+		// 	break;
 		default:
 			printf("Warning: you configured more USDHC controllers"
 				"(%d) than supported by the board\n", i + 1);
@@ -268,9 +273,162 @@ int board_mmc_init(bd_t *bis)
 	return 0;
 }
 
+/*Init 74LV595*/
+
+#define IOX_SDI IMX_GPIO_NR(1, 9)
+#define IOX_STCP IMX_GPIO_NR(1, 12)
+#define IOX_SHCP IMX_GPIO_NR(1, 13)
+
+static iomux_v3_cfg_t const iox_pads[] = {
+	/* IOX_SDI */
+	MX7D_PAD_GPIO1_IO09__GPIO1_IO9	| MUX_PAD_CTRL(NO_PAD_CTRL),
+	/* IOX_STCP */
+	MX7D_PAD_GPIO1_IO12__GPIO1_IO12	| MUX_PAD_CTRL(NO_PAD_CTRL),
+	/* IOX_SHCP */
+	MX7D_PAD_GPIO1_IO13__GPIO1_IO13	| MUX_PAD_CTRL(NO_PAD_CTRL),
+};
+
+/*
+ * PCIE_DIS_B --> Q0
+ * PCIE_RST_B --> Q1
+ * HDMI_RST_B --> Q2
+ * PERI_RST_B --> Q3
+ * SENSOR_RST_B --> Q4
+ * ENET_RST_B --> Q5
+ * PERI_3V3_EN --> Q6
+ * LCD_PWR_EN --> Q7
+ */
+enum qn {
+	PCIE_DIS_B,
+	PCIE_RST_B,
+	HDMI_RST_B,
+	PERI_RST_B,
+	SENSOR_RST_B,
+	ENET_RST_B,
+	PERI_3V3_EN,
+	LCD_PWR_EN,
+};
+
+enum qn_func {
+	qn_reset,
+	qn_enable,
+	qn_disable,
+};
+
+enum qn_level {
+	qn_low = 0,
+	qn_high = 1,
+};
+
+static enum qn_level seq[3][2] = {
+	{0, 1}, {1, 1}, {0, 0}
+};
+
+static enum qn_func qn_output[8] = {
+	qn_disable, qn_reset, qn_reset, qn_reset, qn_reset, qn_reset, qn_enable,
+	qn_disable
+};
+
+static void iox74lv_init(void)
+{
+	int i;
+
+	for (i = 7; i >= 0; i--) {
+		gpio_direction_output(IOX_SHCP, 0);
+		gpio_direction_output(IOX_SDI, seq[qn_output[i]][0]);
+		udelay(500);
+		gpio_direction_output(IOX_SHCP, 1);
+		udelay(500);
+	}
+
+	gpio_direction_output(IOX_STCP, 0);
+	udelay(500);
+	/*
+	  * shift register will be output to pins
+	  */
+	gpio_direction_output(IOX_STCP, 1);
+
+	for (i = 7; i >= 0; i--) {
+		gpio_direction_output(IOX_SHCP, 0);
+		gpio_direction_output(IOX_SDI, seq[qn_output[i]][1]);
+		udelay(500);
+		gpio_direction_output(IOX_SHCP, 1);
+		udelay(500);
+	}
+	gpio_direction_output(IOX_STCP, 0);
+	udelay(500);
+	/*
+	  * shift register will be output to pins
+	  */
+	gpio_direction_output(IOX_STCP, 1);
+};
+
+#ifdef CONFIG_VIDEO_MXS
+static iomux_v3_cfg_t const lcd_pads[] = {
+	MX7D_PAD_LCD_CLK__LCD_CLK | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_ENABLE__LCD_ENABLE | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_HSYNC__LCD_HSYNC | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_VSYNC__LCD_VSYNC | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA00__LCD_DATA0 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA01__LCD_DATA1 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA02__LCD_DATA2 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA03__LCD_DATA3 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA04__LCD_DATA4 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA05__LCD_DATA5 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA06__LCD_DATA6 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA07__LCD_DATA7 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA08__LCD_DATA8 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA09__LCD_DATA9 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA10__LCD_DATA10 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA11__LCD_DATA11 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA12__LCD_DATA12 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA13__LCD_DATA13 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA14__LCD_DATA14 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA15__LCD_DATA15 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA16__LCD_DATA16 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA17__LCD_DATA17 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA18__LCD_DATA18 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA19__LCD_DATA19 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA20__LCD_DATA20 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA21__LCD_DATA21 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA22__LCD_DATA22 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX7D_PAD_LCD_DATA23__LCD_DATA23 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+
+	MX7D_PAD_LCD_RESET__GPIO3_IO4	| MUX_PAD_CTRL(LCD_PAD_CTRL),
+};
+
+static iomux_v3_cfg_t const pwm_pads[] = {
+	/* Use GPIO for Brightness adjustment, duty cycle = period */
+	MX7D_PAD_GPIO1_IO01__GPIO1_IO1 | MUX_PAD_CTRL(NO_PAD_CTRL),
+};
+
+static int setup_lcd(void)
+{
+	imx_iomux_v3_setup_multiple_pads(lcd_pads, ARRAY_SIZE(lcd_pads));
+
+	imx_iomux_v3_setup_multiple_pads(pwm_pads, ARRAY_SIZE(pwm_pads));
+
+	/* Reset LCD */
+	gpio_direction_output(IMX_GPIO_NR(3, 4) , 0);//gpio_direction_output(64+4,0)
+	udelay(500);
+	gpio_direction_output(IMX_GPIO_NR(3, 4) , 1);
+
+	/* Set Brightness to high */
+	gpio_direction_output(IMX_GPIO_NR(1, 1) , 1);
+
+	return 0;
+}
+#endif
+
+
+
 int board_early_init_f(void)
 {
 	setup_iomux_uart();
+	
+#ifdef CONFIG_SYS_I2C_MXC
+		setup_i2c(0, CONFIG_SYS_I2C_SPEED, 0x7f, &i2c_pad_info1);
+#endif
 
 	return 0;
 }
@@ -307,9 +465,13 @@ int board_init(void)
 	/* address of boot parameters */
 	gd->bd->bi_boot_params = PHYS_SDRAM + 0x100;
 
-	#ifdef CONFIG_SYS_I2C_MXC
-		setup_i2c(0, CONFIG_SYS_I2C_SPEED, 0x7f, &i2c_pad_info1);
-	#endif
+	imx_iomux_v3_setup_multiple_pads(iox_pads, ARRAY_SIZE(iox_pads));
+
+	iox74lv_init();
+
+#ifdef CONFIG_VIDEO_MXS
+	setup_lcd();
+#endif
 
 	return 0;
 }
