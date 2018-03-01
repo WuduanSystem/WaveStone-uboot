@@ -15,8 +15,6 @@
 #include <common.h>
 #include <fsl_esdhc.h>
 #include <mmc.h>
-//#include <miiphy.h>
-//#include <netdev.h>
 #include <power/pmic.h>
 #include <power/pfuze3000_pmic.h>
 #include "../freescale/common/pfuze.h"
@@ -116,20 +114,8 @@ static struct fsl_esdhc_cfg usdhc_cfg[2] = {
 
 int board_mmc_getcd(struct mmc *mmc)
 {
-	struct fsl_esdhc_cfg *cfg = (struct fsl_esdhc_cfg *)mmc->priv;
-	int ret = 0;
-
-	switch (cfg->esdhc_base) {
-	// case USDHC2_BASE_ADDR:
-	// 	ret = 1; 	no cd pin, assume uSDHC2 sd is always present
-	// 	//ret = !gpio_get_value(USDHC2_CD_GPIO);
-	// 	break;
-	case USDHC3_BASE_ADDR:
-		ret = 1; /* Assume uSDHC3 emmc is always present */
-		break;
-	}
-
-	return ret;
+	/* Assume uSDHC3 emmc is always present */
+		return 1;
 }
 
 int board_mmc_init(bd_t *bis)
