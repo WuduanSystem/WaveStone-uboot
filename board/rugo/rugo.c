@@ -369,15 +369,11 @@ int checkboard(void)
 		mode = "secure";
 	else
 		mode = "non-secure";
-	printf("Board: Rugo in %s\n",mode);
+	printf("Board: Rugo in %s mode\n",mode);
 
 	return 0;
 }
 
-int board_usb_phy_mode(int port)
-{
-	return USB_INIT_DEVICE;
-}
 
 int board_late_init(void)
 {
